@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 IISLogsCleanup.ps1 - IIS Log File Cleanup Script
 
@@ -109,8 +109,9 @@ $computername = $env:computername
 $now = Get-Date
 $currentmonth = ($now).Month
 $currentyear = ($now).Year
-$previousmonth = ((Get-Date).AddMonths(-1)).Month
-$firstdayofpreviousmonth = (Get-Date -Year $currentyear -Month $currentmonth -Day 1).AddMonths(-1)
+$previousmonth = ((Get-Date).AddMonths(0)).Month
+$firstdayofpreviousmonth = (Get-Date -Year $currentyear -Month $currentmonth -Day 1).AddMonths(0)
+$firstdayofpreviousmonth = (Get-Date).AddDays(-7)
 
 $myDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $output = "$myDir\IISLogsCleanup.log"
@@ -252,147 +253,13 @@ $dates = @($hashtable | Group -Property:Value | Select Name)
 #For each yyyy-MM date add those logfiles to a zip file
 foreach ($date in $dates)
 {
-    $zipfilename = "$Logpath\$computername-$logpathfoldername-$($date.Name).zip"
-
-    if(-not (test-path($zipfilename)))
-    {
-        set-content $zipfilename ("PK" + [char]5 + [char]6 + ("$([char]0)" * 18))
-        (dir $zipfilename).IsReadOnly = $false 
-    }
-
-    $shellApplication = new-object -com shell.application
-    $zipPackage = $shellApplication.NameSpace($zipfilename)
-
     $zipfiles = $hashtable | Where {$_.Value -eq "$($date.Name)"}
-
-    $tmpstring = "Zip file name is $zipfilename and will contain $($zipfiles.Count) files"
-    Write-Host $tmpstring
-    Write-Logfile $tmpstring
 
     foreach($file in $zipfiles) 
     { 
         $fn = $file.key.ToString()
-        
-        $tmpstring = "Adding $fn to $zipfilename"
-        Write-Host $tmpstring
-        Write-Logfile $tmpstring
-
-        $zipPackage.CopyHere($fn,16)
-
-        #This sleep interval helps avoids file lock/conflict issues. May need to increase if larger
-        #log files are taking longer to add to the zip file.
-        do
-        {
-            Start-sleep -s $sleepinterval
-        }
-        while (IsFileLocked($zipfilename))
+        Remove-Item $fn
     }
-
-    #Compare count of log files on disk to count of log files in zip file
-    $zippedcount = ($zipPackage.Items()).Count
-    
-    $tmpstring = "Zipped count: $zippedcount"
-    Write-Host $tmpstring
-    Write-Logfile $tmpstring
-    
-    $tmpstring = "Files: $($zipfiles.Count)"
-    Write-Host $tmpstring
-    Write-Logfile $tmpstring
-
-    #If counts match it is safe to delete the log files from disk
-    if ($zippedcount -eq $($zipfiles.Count))
-    {
-        $tmpstring = "Zipped file count matches log file count, safe to delete log files"
-        Write-Host $tmpstring
-        Write-Logfile $tmpstring
-        foreach($file in $zipfiles) 
-        { 
-            $fn = $file.key.ToString()
-            Remove-Item $fn
-        }
-
-        #If archive path was specified move zip file to archive path
-        if ($ArchivePath)
-        {
-            #Check whether archive path is accessible
-            if ((Test-Path $ArchivePath) -ne $true)
-            {
-                $tmpstring = "Log path $archivepath not found or inaccessible"
-                Write-Warning $tmpstring
-                Write-Logfile $tmpstring
-            }
-            else
-            {
-                #Check if subfolder of archive path exists
-                if ((Test-Path $ArchivePath\$computername) -ne $true)
-                {
-                    try 
-                    {
-                        #Create subfolder based on server name
-                        New-Item -Path $ArchivePath\$computername -ItemType Directory -ErrorAction STOP
-                    }
-                    catch
-                    {
-                        #Subfolder creation failed
-                        $tmpstring = "Unable to create $computername subfolder in $archivepath"
-                        Write-Host $tmpstring
-                        Write-Logfile $tmpstring
-
-                        $tmpstring = $_.Exception.Message
-                        Write-Warning $tmpstring
-                        Write-Logfile $tmpstring
-                    }
-                }
-
-                if ((Test-Path $ArchivePath\$computername\$logpathfoldername) -ne $true)
-                {
-                    try
-                    {
-                        #create subfolder based on log path folder name
-                        New-Item -Path $ArchivePath\$computername\$logpathfoldername -ItemType Directory -ErrorAction STOP
-                    }
-                    catch
-                    {
-                        #Subfolder creation failed
-                        $tmpstring = "Unable to create $logpathfoldername subfolder in $archivepath\$computername"
-                        Write-Host $tmpstring
-                        Write-Logfile $tmpstring
-
-                        $tmpstring = $_.Exception.Message
-                        Write-Warning $tmpstring
-                        Write-Logfile $tmpstring
-                    }
-                }
-
-                #Now move the zip file to the archive path
-                try 
-                {
-                    #Move the zip file
-                    Move-Item $zipfilename -Destination $ArchivePath\$computername\$logpathfoldername -ErrorAction STOP
-                    $tmpstring = "$zipfilename was moved to $archivepath\$computername\$logpathfoldername"
-                    Write-Host $tmpstring
-                    Write-Logfile $tmpstring
-                }
-                catch
-                {
-                    #Move failed, log the error
-                    $tmpstring = "Unable to move $zipfilename to $ArchivePath\$computername\$logpathfoldername"
-                    Write-Host $tmpstring
-                    Write-Logfile $tmpstring
-                    Write-Warning $_.Exception.Message
-                    Write-Logfile $_.Exception.Message
-                }   
-            }
-        }
-
-    }
-    else
-    {
-        $tmpstring = "Zipped file count does not match log file count, not safe to delete log files"
-        Write-Host $tmpstring
-        Write-Logfile $tmpstring
-    }
-
 }
 
 
